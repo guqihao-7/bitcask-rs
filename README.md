@@ -19,7 +19,7 @@
 基于上述模型的增删改查：
 * 增/写入：首先按照 entry 的格式写入 active file，生成 crc。然后更新 keydir。单线程顺序写。
 * 删    ：相当于增加，在 active file 写入一个 tomb。删除 keydir 对应的索引。
-* 改    ：先在 active file 写入一个 tomb。然后在 active file 追加新增的，然后 keydir 中 value 的 valuepos等修改。
+* 改    ：删旧的+增加新的
 * 查    ：先查询 keydir 拿到 fileid，然后去 file 里面根据 valuepos 和 valuesz 进行查。记得校验 crc
 
 merge 进行的时机：

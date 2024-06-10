@@ -1,5 +1,5 @@
 pub mod btree;
-mod keydir;
+pub mod keydir;
 
 use crate::data::meta_data::MetaData;
 

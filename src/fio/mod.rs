@@ -1,4 +1,4 @@
-pub(crate) mod file_io;
+pub mod file_io;
 
 use crate::error::R;
 

@@ -1,12 +1,12 @@
 use std::collections::HashMap;
-use std::fs::File;
 use std::ops::Index;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+
 use crc::{Crc, CRC_32_ISO_HDLC};
 use parking_lot::RwLock;
+
 use crate::data::datafile::DataFile;
-use crate::data::entry::{Entry, EntryType};
+use crate::data::entry::Entry;
 use crate::data::meta_data::MetaData;
 use crate::error::E::{DataCorrupted, EmptyKey, Failed2UpdateMemIndex};
 use crate::error::R;
@@ -15,9 +15,23 @@ use crate::options::Options;
 
 pub struct Engine {
     options: Arc<Options>,
-    mem_index: Box<dyn Indexer>,
+    mem_index: Arc<RwLock<Box<dyn Indexer>>>,
     active_file: Arc<RwLock<DataFile>>,
     older_files: Arc<RwLock<HashMap<u32, DataFile>>>,
+}
+
+impl Engine {
+    pub fn new(options: Arc<Options>,
+               mem_index: Arc<RwLock<Box<dyn Indexer>>>,
+               active_file: Arc<RwLock<DataFile>>,
+               older_files: Arc<RwLock<HashMap<u32, DataFile>>>, ) -> Self {
+        Self {
+            options,
+            mem_index,
+            active_file,
+            older_files,
+        }
+    }
 }
 
 impl Engine {
@@ -26,31 +40,14 @@ impl Engine {
         if key.is_empty() {
             return Err(EmptyKey);
         }
-
-        let crc = Crc::<u32>::new(&CRC_32_ISO_HDLC);
-        let crc = crc.checksum(&value[..]);
-        let tstamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_millis()
-            as u64;
-        let mut entry = Entry::new(crc, tstamp, key.len(), value.len(), key, value);
+        let mut entry = Entry::new(key, value).unwrap();
         let _ = self.append_entry_to_active_file(&mut entry);
         Ok(())
     }
 
     pub fn append_entry_to_active_file(&self, entry: &mut Entry) -> R<MetaData> {
         let dir_path = self.options.dir_path.clone();
-        let entry_type = entry.encode();
-        let data: Vec<u8>;
-        match entry_type {
-            EntryType::Normal(t) => {
-                data = t;
-            }
-            EntryType::Tombstone => {
-                
-            }
-        }
+        let data: Vec<u8> = entry.encode();
         let entry_sz = data.len();
 
         // 1. 获取 active file
@@ -82,7 +79,8 @@ impl Engine {
         // 4. 更新内存 index
         let meta_data = MetaData::new(active_file.file_id(), entry.value_sz(),
                                       active_file.next_write_begin_pos(), entry.tstamp());
-        if !self.mem_index.put((*entry.k()).parse().unwrap(), meta_data) {
+        let mem_index_write_guard = self.mem_index.write();
+        if !mem_index_write_guard.put((*entry.k()).parse().unwrap(), meta_data) {
             return Err(Failed2UpdateMemIndex);
         }
         Ok(meta_data)
@@ -94,11 +92,13 @@ impl Engine {
         }
 
         // 1. 读 index
-        let meta_data = self.mem_index.as_ref()
+        let mem_index_read_guard = self.mem_index.read();
+        let meta_data = mem_index_read_guard.as_ref()
             .get(&key).unwrap();
-        let active_file_read_guard = self.active_file.read();
+        drop(mem_index_read_guard);
 
-        // 2. 读 data
+        // 2. 读 file 中的 data
+        let active_file_read_guard = self.active_file.read();
         let mut buf = vec![0; meta_data.value_sz];
         let data = if active_file_read_guard.file_id() == meta_data.file_id {
             let tmp = active_file_read_guard.read_with_given_pos(meta_data.value_pos, &mut buf).unwrap();
@@ -125,7 +125,48 @@ impl Engine {
     }
 
     /// 在 active file 写入一个 tomb。删除 keydir 对应的索引
+    /// tombstone 就是 value_sz 是 0，value 是 len 为 0 的 vec
     pub fn delete(&self, key: String) -> R<Vec<u8>> {
-        unimplemented!()
+        let mut tombstone = Entry::get_tombstone_with_given_key(key.clone()).unwrap();
+        let res = self.read(key.clone()).unwrap();
+        let _ = self.append_entry_to_active_file(&mut tombstone);
+        let mem_index_write_guard = self.mem_index.write();
+        mem_index_write_guard.delete(&key);
+        Ok(res)
+    }
+
+    /// 将 key 的值更新为 new_value
+    pub fn update(&self, key: String, new_value: Vec<u8>) -> R<()> {
+        let _ = self.delete(key.clone());
+        self.put(key, new_value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::index::keydir::KeyDir;
+    use super::*;
+
+    #[test]
+    fn test_put_and_read() {
+        let dir_path = "./test_data".to_string();
+        let options = Arc::new(Options {
+            dir_path: dir_path.clone(),
+            file_threshold: 5,
+            syn_after_each_write: false,
+        });
+
+        let mem_index: Arc<RwLock<Box<dyn Indexer>>> =
+            Arc::new(RwLock::new(Box::new(KeyDir::new()) as Box<dyn Indexer>));
+
+        let active_file = Arc::new(RwLock::new(DataFile::new(dir_path.clone(), 1).unwrap()));
+
+        let older_files = Arc::new(RwLock::new(HashMap::<u32, DataFile>::new()));
+
+        let engine = Engine::new(options, mem_index, active_file, older_files);
+        engine.put("hello".to_string(), "world".to_string().into_bytes()).unwrap();
+        let vec = engine.read("hello".to_string()).unwrap();
+        println!("{:?}", vec);
+    }
+}
+

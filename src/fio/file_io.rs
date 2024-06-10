@@ -17,7 +17,7 @@ pub struct FileIO {
 }
 
 impl FileIO {
-    pub(crate) fn new(file: File) -> Self {
+    pub fn new(file: File) -> Self {
         Self {
             fd: Arc::new(RwLock::new(file)),
         }

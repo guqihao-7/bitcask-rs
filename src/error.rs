@@ -14,7 +14,7 @@ pub enum E {
     #[error("failed to open data file")]
     Failed2OpenDataFile,
 
-    #[error("key is empty")]
+    #[error("key is empty and it's illegal")]
     EmptyKey,
 
     #[error("mem index update failed")]
@@ -22,6 +22,12 @@ pub enum E {
 
     #[error("data is corrupted")]
     DataCorrupted,
+
+    #[error("value is empty and it's illegal")]
+    EmptyValue,
+
+    #[error("cannot open or create data file")]
+    CanNotOpenOrCreateDateFile,
 }
 
 pub type R<T> = Result<T, E>;

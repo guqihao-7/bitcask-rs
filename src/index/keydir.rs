@@ -11,7 +11,7 @@ pub struct KeyDir {
 }
 
 impl KeyDir {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             hash_table: Arc::new(RwLock::new(HashMap::new())),
         }
