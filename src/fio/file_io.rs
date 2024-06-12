@@ -54,7 +54,8 @@ impl IOManager for FileIO {
         };
     }
 
-    fn write(&self, buf: &[u8]) -> R<usize> {
+    fn append(&self, buf: &[u8]) -> R<usize> {
+        // open 时制定了是 append
         let mut write_guard = self.fd.write();
         return match write_guard.write(buf) {
             Ok(n) => { Ok(n) }
@@ -85,7 +86,7 @@ mod tests {
         assert!(fio_res.is_ok());
 
         let fio = fio_res.ok().unwrap();
-        let result = fio.write("hello".as_bytes());
+        let result = fio.append("hello".as_bytes());
         assert!(result.is_ok());
         assert_eq!(result.ok().unwrap(), 5);
     }

@@ -28,6 +28,9 @@ pub enum E {
 
     #[error("cannot open or create data file")]
     CanNotOpenOrCreateDateFile,
+
+    #[error("cannot write old file, it's immutable")]
+    CanNotWriteOldFile,
 }
 
 pub type R<T> = Result<T, E>;

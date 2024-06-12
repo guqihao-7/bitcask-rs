@@ -70,7 +70,7 @@ impl Engine {
         }
 
         // 3. 写入 disk
-        active_file.write(data)?;
+        active_file.append(data)?;
 
         if self.options.syn_after_each_write {
             active_file.sync()?;
@@ -100,17 +100,17 @@ impl Engine {
         // 2. 读 file 中的 data
         let active_file_read_guard = self.active_file.read();
         let mut buf = vec![0; meta_data.value_sz];
-        let data = if active_file_read_guard.file_id() == meta_data.file_id {
-            let tmp = active_file_read_guard.read_with_given_pos(meta_data.value_pos, &mut buf).unwrap();
+        let data: Vec<u8> = if active_file_read_guard.file_id() == meta_data.file_id {
+            let _ = active_file_read_guard.read_with_given_pos(meta_data.value_pos, &mut buf).unwrap();
             drop(active_file_read_guard);
-            tmp
+            buf
         } else {
             drop(active_file_read_guard);
             let older_file_read_guard = self.older_files.read();
             let target_old_file = older_file_read_guard.get(&meta_data.file_id).unwrap();
-            let tmp = target_old_file.read_with_given_pos(meta_data.value_pos, &mut buf).unwrap();
+            let _ = target_old_file.read_with_given_pos(meta_data.value_pos, &mut buf).unwrap();
             drop(older_file_read_guard);
-            tmp
+            buf
         };
 
         // 3. 校验 crc 并解析
