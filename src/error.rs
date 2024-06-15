@@ -31,6 +31,12 @@ pub enum E {
 
     #[error("cannot write old file, it's immutable")]
     CanNotWriteOldFile,
+    
+    #[error("key not exist so the value is nil")]
+    Nil,
+
+    #[error("key not exist")]
+    KeyNotExist,
 }
 
 pub type R<T> = Result<T, E>;

@@ -2,8 +2,12 @@
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct MetaData {
     pub file_id: u32,
-    pub value_sz: usize,
-    pub value_pos: usize,
+
+    // entry 的大小
+    pub entry_sz: usize,
+
+    // entry 在磁盘中开始的位置
+    pub entry_start_pos: usize,
     pub tstamp: u64,
 }
 
@@ -11,8 +15,8 @@ impl MetaData {
     pub fn new(file_id: u32, value_sz: usize, value_pos: usize, tstamp: u64) -> Self {
         Self {
             file_id,
-            value_sz,
-            value_pos,
+            entry_sz: value_sz,
+            entry_start_pos: value_pos,
             tstamp,
         }
     }
@@ -21,10 +25,10 @@ impl MetaData {
         self.file_id
     }
     pub fn value_sz(&self) -> usize {
-        self.value_sz
+        self.entry_sz
     }
     pub fn value_pos(&self) -> usize {
-        self.value_pos
+        self.entry_start_pos
     }
     pub fn tstamp(&self) -> u64 {
         self.tstamp

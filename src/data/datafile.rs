@@ -6,14 +6,13 @@ use std::fs::File;
 use std::os::windows::fs::FileExt;
 use log::error;
 use parking_lot::RwLock;
-use crate::error::E::{CanNotOpenOrCreateDateFile, CanNotWriteOldFile, Failed2ReadFromDataFile};
+use crate::error::E::{CanNotOpenOrCreateDateFile, CanNotWriteOldFile};
 
 use crate::error::R;
 use crate::fio::file_io::FileIO;
 use crate::fio::IOManager;
 
 const FILE_SUFFIX: &str = ".bck";
-const WINDOWS_FILE_SPLITTER: &str = "\\";
 const UNIX_FILE_SPLITTER: &str = "/";
 
 /// older file 和 active file 的抽象
@@ -57,18 +56,21 @@ impl DataFile {
                 })
             }
             Err(e) => {
+                println!("{:?}", e);
                 error!("read from data file err: {}", e);
                 Err(CanNotOpenOrCreateDateFile {})
             }
         }
     }
 
-    fn get_file(readable: bool, writeable: bool, full_path: &PathBuf)
+    /// 不存在则以读写模式创建然后返回，已存在以读写模式直接返回
+    fn get_file(readable: bool, appendable: bool, full_path: &PathBuf)
                 -> Result<File, Error> {
-        match OpenOptions::new()
-            .read(readable)
-            .write(writeable)
-            .open(full_path) {
+        let mut open_options = OpenOptions::new();
+        open_options.read(readable);
+        open_options.append(appendable);
+        open_options.create(true); // Sets the option to create a new file, or open it if it already exists
+        match open_options.open(full_path) {
             Ok(file) => {
                 Ok(file)
             }
@@ -79,10 +81,9 @@ impl DataFile {
     }
 
     fn get_file_full_path(dir_path: String, file_id: String) -> PathBuf {
-        Path::new(&dir_path)
-            .join(WINDOWS_FILE_SPLITTER)
-            .join(file_id)
-            .join(FILE_SUFFIX)
+        let full_path = dir_path + UNIX_FILE_SPLITTER + &file_id + FILE_SUFFIX;
+        let path_buf = PathBuf::from(full_path);
+        path_buf
     }
 
     pub fn append(&self, buf: Vec<u8>) -> R<usize> {
