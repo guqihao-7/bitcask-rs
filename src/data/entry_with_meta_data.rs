@@ -1,3 +1,6 @@
+use crate::data::entry::Entry;
+use crate::data::meta_data::MetaData;
+
 #[derive(Debug)]
 pub struct EntryWithMetaData {
     pub entry: Entry,

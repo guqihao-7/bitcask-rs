@@ -1,9 +1,3 @@
-use std::collections::HashMap;
-use std::fs::{self, create_dir_all};
-use std::path::Path;
-use std::sync::Arc;
-
-use crate::data::datafile;
 use crate::data::datafile::{DataFile, DataFileType, DATA_FILE_SUFFIX};
 use crate::data::entry::Entry;
 use crate::data::meta_data::MetaData;
@@ -18,6 +12,10 @@ use crate::options::Options;
 use crc::{Crc, CRC_32_ISO_HDLC};
 use log::{error, warn};
 use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::fs::{self, create_dir_all};
+use std::path::Path;
+use std::sync::Arc;
 
 pub struct Engine {
     options: Arc<Options>,
@@ -244,7 +242,7 @@ impl Engine {
 fn load_data_files(dir_path: String) -> R<Vec<DataFile>> {
     let res = fs::read_dir(Path::new(dir_path.as_str()));
     if res.is_err() {
-        return Failed2ReadDBDir;
+        return Err(Failed2ReadDBDir);
     }
 
     let file_ids: Vec<u32> = Vec::new();
@@ -260,7 +258,10 @@ fn load_data_files(dir_path: String) -> R<Vec<DataFile>> {
             {
                 continue;
             }
-            let datafile = DataFile::create_from_full_path(entry.path(), DataFileType::OLD)?;
+            let datafile = DataFile::create_from_full_path(
+                entry.path().display().to_string(),
+                DataFileType::OLD,
+            )?;
             data_files.push(datafile);
         }
     }
@@ -270,12 +271,12 @@ fn load_data_files(dir_path: String) -> R<Vec<DataFile>> {
     // 从小到大排序, 找到最大 id 将类型更新为 active
     data_files.sort_by(|a, b| a.file_id().cmp(&b.file_id()));
     data_files[data_files.len() - 1].set_filetype(DataFileType::ACTIVE);
-    data_files
+    Ok(data_files)
 }
 
 fn check_options(opts: &mut Options) -> Option<E> {
     let dir_path = opts.dir_path.clone();
-    if dir_path == None || dir_path.len() == 0 {
+    if dir_path.len() == 0 {
         return Some(DirPathIsEmpty);
     }
 
