@@ -6,7 +6,9 @@ use std::sync::Arc;
 use log::error;
 use parking_lot::RwLock;
 
-use crate::error::E::{Failed2OpenDataFile, Failed2ReadFromDataFile, Failed2SyncDataFile, Failed2Write2DataFile};
+use crate::error::E::{
+    Failed2OpenDataFile, Failed2ReadFromDataFile, Failed2SyncDataFile, Failed2Write2DataFile,
+};
 use crate::error::R;
 use crate::fio::IOManager;
 
@@ -31,9 +33,9 @@ impl FileIO {
             .append(true)
             .open(file_path)
         {
-            Ok(file) => {
-                Ok(FileIO { fd: Arc::new(RwLock::new(file)) })
-            }
+            Ok(file) => Ok(FileIO {
+                fd: Arc::new(RwLock::new(file)),
+            }),
             Err(e) => {
                 error!("failed to open data file: {}", e);
                 Err(Failed2OpenDataFile)
@@ -58,7 +60,7 @@ impl IOManager for FileIO {
         // open 时制定了是 append
         let mut write_guard = self.fd.write();
         return match write_guard.write(buf) {
-            Ok(n) => { Ok(n) }
+            Ok(n) => Ok(n),
             Err(e) => {
                 error!("read from data file err: {}", e);
                 Err(Failed2Write2DataFile)

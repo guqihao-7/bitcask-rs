@@ -1,9 +1,9 @@
+use crate::error::E::{EmptyKey, EmptyValue};
+use crate::error::R;
+use crc::{Crc, CRC_32_ISO_HDLC};
 use std::fmt::Display;
 use std::mem;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crc::{Crc, CRC_32_ISO_HDLC};
-use crate::error::E::{EmptyKey, EmptyValue};
-use crate::error::R;
 
 /// disk 上的表示形式 crc-tstamp-ksz-valuesz-k-v
 #[derive(Debug)]
@@ -22,7 +22,7 @@ pub struct Entry {
 /// 1. tombstone 的 value_sz 是 0，
 /// 2. v 的 len 是 0，也就是没有值
 impl Entry {
-    fn calculate_crc_by_vec(v: &Vec<u8>) -> u32 {
+    pub fn calculate_crc_by_vec(v: &Vec<u8>) -> u32 {
         Crc::<u32>::new(&CRC_32_ISO_HDLC).checksum(&v[..])
     }
 
@@ -30,8 +30,7 @@ impl Entry {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
-            .as_millis()
-            as u64
+            .as_millis() as u64
     }
 
     pub fn get_tombstone_with_given_key(k: String) -> R<Self> {
@@ -179,7 +178,12 @@ impl Display for Entry {
 
 impl PartialEq for Entry {
     fn eq(&self, other: &Self) -> bool {
-        self.crc == other.crc && self.tstamp == other.tstamp && self.ksz == other.ksz && self.value_sz == other.value_sz && self.k == other.k && self.v == other.v
+        self.crc == other.crc
+            && self.tstamp == other.tstamp
+            && self.ksz == other.ksz
+            && self.value_sz == other.value_sz
+            && self.k == other.k
+            && self.v == other.v
     }
 }
 

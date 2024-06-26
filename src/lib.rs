@@ -1,6 +1,6 @@
-mod index;
 mod data;
-mod fio;
-mod error;
 mod db;
+mod error;
+mod fio;
+mod index;
 mod options;
