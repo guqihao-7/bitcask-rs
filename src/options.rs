@@ -8,4 +8,14 @@ pub struct Options {
 
     /// 每次写后是否 sync
     pub syn_after_each_write: bool,
+
+    /// 索引类型
+    pub index_type: IndexType,
+}
+
+#[derive(Clone, Debug)]
+pub enum IndexType {
+    BTree,
+    Hash,
+    SkipList,
 }

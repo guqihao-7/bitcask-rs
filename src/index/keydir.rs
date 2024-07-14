@@ -26,6 +26,11 @@ impl Indexer for KeyDir {
     }
 
     fn get(&self, key: &String) -> Option<MetaData> {
+        let table_read = self.hash_table.read();
+        for (k, v) in table_read.iter() {
+             println!("Key: {}, Value: {:?}", k, v);
+        }
+
         let read_guard = self.hash_table.read();
         read_guard.get(key).copied()
     }

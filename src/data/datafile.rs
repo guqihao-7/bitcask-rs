@@ -8,6 +8,7 @@ use parking_lot::RwLock;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Error;
+use std::mem;
 use std::os::windows::fs::FileExt;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -145,7 +146,44 @@ impl DataFile {
         self.file_type = t;
     }
 
-    pub fn get_all_entries_with_metadata(&mut self) -> R<Vec<EntryWithMetaData>> {
-        unimplemented!()
+    pub fn get_all_entries_with_metadata(&self) -> R<Vec<EntryWithMetaData>> {
+        let mut entries_with_metadata = Vec::new();
+        let file = File::open(&self.file_full_path).unwrap();
+
+        let mut size = 0;
+        let usize_bytes = mem::size_of::<usize>()
+        size += mem::size_of::<u32>(); // crc
+        size += mem::size_of::<u64>(); // tstamp
+        size += mem::size_of::<usize>(); // ksz
+        size += mem::size_of::<usize>(); // value_sz
+
+        let mut buf = vec![0; size];
+        let mut pos = 0;
+        loop {
+            let bytes_read = file.seek_read(&mut buf, pos as u64).unwrap();
+            if bytes_read == 0 {
+                break;
+            }
+
+            let entry_crc = u32::from_be_bytes(buf[0..4].try_into().unwrap());
+            if entry_crc == 0 {
+                break;
+            }
+
+            let entry_tstamp = u64::from_be_bytes(buf[4..12].try_into().unwrap());
+            let entry_ksz = u32::from_be_bytes(buf[12..16].try_into().unwrap()) as usize;
+            let entry_value_sz = u32::from_be_bytes(buf[16..20].try_into().unwrap()) as usize;
+            
+
+
+            let entry_len = u32::from_be_bytes(buf.try_into().unwrap()) as usize;
+            let mut entry_buf = vec![0; entry_len];
+            let _ = file.seek_read(&mut entry_buf, (pos + 4) as u64).unwrap();
+            let entry = bincode::deserialize(&entry_buf).unwrap();
+            let meta_data = EntryWithMetaData::new(entry, pos);
+            entries_with_metadata.push(meta_data);
+            pos += entry_len + 4;
+        }
+        Ok(entries_with_metadata)
     }
 }

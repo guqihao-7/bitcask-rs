@@ -1,4 +1,4 @@
-use crate::data::datafile::{DataFile, DataFileType, DATA_FILE_SUFFIX};
+use crate::data::datafile::{self, DataFile, DataFileType, DATA_FILE_SUFFIX};
 use crate::data::entry::Entry;
 use crate::data::meta_data::MetaData;
 use crate::error::E::{
@@ -7,21 +7,24 @@ use crate::error::E::{
 };
 use crate::error::{E, R};
 use crate::index::keydir::KeyDir;
-use crate::index::Indexer;
+use crate::index::{self, Indexer};
+use crate::options::IndexType;
 use crate::options::Options;
 use crc::{Crc, CRC_32_ISO_HDLC};
 use log::{error, warn};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs::{self, create_dir_all};
+use std::ops::Index;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
-
 pub struct Engine {
     options: Arc<Options>,
     mem_index: Arc<RwLock<Box<dyn Indexer>>>,
     active_file: Arc<RwLock<DataFile>>,
     older_files: Arc<RwLock<HashMap<u32, DataFile>>>,
+    index_type: Box<dyn Indexer>,
 }
 
 impl Engine {
@@ -30,12 +33,14 @@ impl Engine {
         mem_index: Arc<RwLock<Box<dyn Indexer>>>,
         active_file: Arc<RwLock<DataFile>>,
         older_files: Arc<RwLock<HashMap<u32, DataFile>>>,
+        index_type: Box<dyn Indexer>,
     ) -> Self {
         Self {
             options,
             mem_index,
             active_file,
             older_files,
+            index_type,
         }
     }
 
@@ -46,7 +51,7 @@ impl Engine {
 
         // 1. 校验 Options
         let opts: Options = opts.clone();
-        let dir_path = opts.dir_path;
+        let dir_path = opts.dir_path.clone();
         let path = Path::new(dir_path.as_str());
         match path.try_exists() {
             Ok(exist) => {
@@ -64,39 +69,43 @@ impl Engine {
         }
 
         // 2. 读取所有的 Files 构建 DataFile(OlderFiles and active file)
-        let mut older_files: HashMap<u32, DataFile> = HashMap::new();
-        let data_files = load_data_files(dir_path)?;
-        if data_files.len() > 1 {
-            for i in 0..=data_files.len() - 2 {
-                older_files.insert(data_files[i].file_id(), data_files[i]);
-            }
-        }
-
-        let active_file = data_files[data_files.len() - 1];
-
         // 3. 构建内存索引，当前默认内存是 hash 表
-        let mut mem_index: Box<dyn Indexer> = Box::new(KeyDir::new()) as Box<dyn Indexer>;
-        // 已经是从小到大排好序的
-        for data_file in data_files {
-            let entry_with_metadatas = data_file.get_all_entries_with_metadata()?;
-            for entry_with_metadata in entry_with_metadatas {
-                let entry = entry_with_metadata.entry;
-                if entry.is_tombstone() {
-                    mem_index.delete(&entry.k().to_string());
-                } else {
-                    let meta_data = entry_with_metadata.meta_data;
-                    mem_index.put(entry.k(), meta_data);
-                }
+        let mem_index: Box<dyn Indexer> = Box::new(KeyDir::new()) as Box<dyn Indexer>;
+        let mut older_files: HashMap<u32, DataFile> = HashMap::new();
+        let mut data_files = load_data_files(dir_path)?;
+        data_files.reverse();
+        if data_files.len() > 1 {
+            for _ in 0..=data_files.len() - 2 {
+                let data_file = data_files.pop().unwrap();
+                Self::fill_mem_index(&mem_index, &data_file);
+                older_files.insert(data_file.file_id(), data_file);
             }
         }
+
+        let active_file = data_files.pop().unwrap();
+        Self::fill_mem_index(&mem_index, &active_file);
 
         // 4. 构建 Engine
-        let options = Arc::new(opts);
+        let options = Arc::new(opts.clone());
         let mem_index = Arc::new(RwLock::new(mem_index));
         let active_file = Arc::new(RwLock::new(active_file));
         let older_files = Arc::new(RwLock::new(older_files));
-        let engine = Engine::new(options, mem_index, active_file, older_files);
+        let index_type = index::new_indexer(opts.index_type);
+        let engine = Engine::new(options, mem_index, active_file, older_files, index_type);
         Ok(engine)
+    }
+
+    fn fill_mem_index(mem_index: &Box<dyn Indexer>, data_file: &DataFile) {
+        let entry_with_metadatas = data_file.get_all_entries_with_metadata().unwrap();
+        for entry_with_metadata in entry_with_metadatas {
+            let entry = entry_with_metadata.entry;
+            if entry.is_tombstone() {
+                mem_index.delete(&entry.k().to_string());
+            } else {
+                let meta_data = entry_with_metadata.meta_data;
+                mem_index.put(String::from_str(entry.k()).unwrap(), meta_data);
+            }
+        }
     }
 }
 
@@ -245,7 +254,6 @@ fn load_data_files(dir_path: String) -> R<Vec<DataFile>> {
         return Err(Failed2ReadDBDir);
     }
 
-    let file_ids: Vec<u32> = Vec::new();
     let mut data_files: Vec<DataFile> = Vec::new();
     for file in res.unwrap() {
         if let Ok(entry) = file {
@@ -266,11 +274,10 @@ fn load_data_files(dir_path: String) -> R<Vec<DataFile>> {
         }
     }
 
-    let mut max_id = u32::MIN;
-
     // 从小到大排序, 找到最大 id 将类型更新为 active
+    let num: usize = data_files.len();
     data_files.sort_by(|a, b| a.file_id().cmp(&b.file_id()));
-    data_files[data_files.len() - 1].set_filetype(DataFileType::ACTIVE);
+    data_files[num - 1].set_filetype(DataFileType::ACTIVE);
     Ok(data_files)
 }
 
@@ -290,6 +297,8 @@ fn check_options(opts: &mut Options) -> Option<E> {
 
 #[cfg(test)]
 mod tests {
+    use index::keydir;
+
     use super::*;
     use crate::index::keydir::KeyDir;
     use std::fs::OpenOptions;
@@ -358,6 +367,26 @@ mod tests {
             "{:?}",
             String::from_utf8(engine.read("hello".to_string()).unwrap())
         );
+    }
+
+    #[test]
+    fn test_bootstrap() {
+        let engine = open_engine();
+
+        let r1 = engine.read("hello1".to_string()).unwrap();
+        println!("{:?}", String::from_utf8(r1));
+
+        let r2 = engine.read("hello2".to_string()).unwrap();
+        println!("{:?}", String::from_utf8(r2));
+
+        let r3 = engine.read("hello3".to_string()).unwrap();
+        println!("{:?}", String::from_utf8(r3));
+
+        let r4 = engine.read("hello4".to_string()).unwrap();
+        println!("{:?}", String::from_utf8(r4));
+
+        let r5 = engine.read("hello5".to_string()).unwrap();
+        println!("{:?}", String::from_utf8(r5));
     }
 
     #[test]
@@ -466,21 +495,34 @@ mod tests {
     }
 
     pub fn get_engine() -> Engine {
-        let dir_path = "./test_data".to_string();
-        let options = Arc::new(Options {
-            dir_path: dir_path.clone(),
-            file_threshold: 5000,
-            syn_after_each_write: false,
-        });
+        let option = get_default_options();
+        let options = Arc::new(option);
 
         let mem_index: Arc<RwLock<Box<dyn Indexer>>> =
             Arc::new(RwLock::new(Box::new(KeyDir::new()) as Box<dyn Indexer>));
 
-        let active_file = Arc::new(RwLock::new(DataFile::new(dir_path.clone(), 1).unwrap()));
+        let active_file = Arc::new(RwLock::new(
+            DataFile::new(options.clone().dir_path.clone(), 1).unwrap(),
+        ));
 
         let older_files = Arc::new(RwLock::new(HashMap::<u32, DataFile>::new()));
-
-        let engine = Engine::new(options, mem_index, active_file, older_files);
+        let index_type = Box::new(keydir::KeyDir::new());
+        let engine = Engine::new(options, mem_index, active_file, older_files, index_type);
         engine
+    }
+
+    pub fn open_engine() -> Engine {
+        let options = get_default_options();
+        Engine::open(options).unwrap()
+    }
+
+    pub fn get_default_options() -> Options {
+        let dir_path = "./test_data".to_string();
+        Options {
+            dir_path: dir_path.clone(),
+            file_threshold: 5000,
+            syn_after_each_write: false,
+            index_type: IndexType::Hash,
+        }
     }
 }

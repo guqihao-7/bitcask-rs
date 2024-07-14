@@ -1,7 +1,9 @@
 pub mod btree;
 pub mod keydir;
 
-use crate::data::meta_data::MetaData;
+use core::panic;
+
+use crate::{data::meta_data::MetaData, options::IndexType};
 
 // 内存中索引接口
 pub trait Indexer: Send + Sync {
@@ -13,4 +15,13 @@ pub trait Indexer: Send + Sync {
 
     /// 根据 key 删除 metadata
     fn delete(&self, key: &String) -> bool;
+}
+
+pub fn new_indexer(index_type: IndexType) -> Box<dyn Indexer> {
+    match index_type {
+        IndexType::BTree => Box::new(btree::BTree::new()),
+        IndexType::Hash => Box::new(keydir::KeyDir::new()),
+        IndexType::SkipList => todo!(),
+        _ => panic!("index type not supported now!"),
+    }
 }
